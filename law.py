@@ -9,10 +9,10 @@ import pandas as pd
 import requests
 load_dotenv()
 
-customerId = "workspaceID"
-shared_key = "key"
+customerId = os.environ['WORKSPACEID']
+shared_key = os.environ['LAWKEY']
 
-
+#get all the data you need for the log Unformatted
 query = '''let timeRangeStart = now(-3d);
 let timeRangeEnd = now();
 InsightsMetrics
@@ -53,18 +53,22 @@ InsightsMetrics
     | project-away TenantId, TimeGenerated, SourceSystem, Origin, Namespace, Tags, AgentId, _ResourceId, Type
 ) on Computer'''
 
+
+#authenticates to azure using the default azure credential class
 credential = DefaultAzureCredential(exclude_interactive_browser_credential=False)
 
 
 
-
+#client to create the custom log
 logs_client = LogsQueryClient(credential)
 response = logs_client.query_workspace(
         workspace_id=os.environ['WORKSPACEID'],
         query=query,
         timespan=timedelta(days=1)
                     )
+#removes all unwanted columns from the response
 data = response.tables
+
 data_list = []
 for table in data:
     df = pd.DataFrame(data=table.rows, columns=table.columns)
@@ -73,8 +77,13 @@ for table in data:
     df[computer_column] = df[computer_column].drop_duplicates()
     df.dropna(inplace=True)
     data_list.append(df)
+print(data_list)
+print("break")
 json_data = data_list[0].to_json(orient="records")
-#
+
+
+print(json_data)
+
 
 #need to get the request object encoded into utf-8 then get the length of that byte array. 
 #that is the content length to be used in the signature
@@ -91,7 +100,7 @@ json_utf8 = json_data.encode('utf-8')
 current_datetime = datetime.datetime.now(datetime.timezone.utc)
 rfc1123_datetime = current_datetime.strftime('%a, %d %b %Y %H:%M:%S GMT')
 
-
+#build the signature to authenticate the request to the log analytics REST API
 def build_signature(customer_id, shared_key, date, method, content_type, resource, json_payload):
     x_headers = "x-ms-date:" + date
     string_to_hash = method + "\n" + str(len(json_payload)) + "\n" + content_type + "\n" + x_headers + "\n" + resource
@@ -107,9 +116,9 @@ def build_signature(customer_id, shared_key, date, method, content_type, resourc
     return authorization
 
 
-
-auth_sig = build_signature(customer_id="workspaceID goes here",
-                shared_key="workspacekey goes here",
+#call the signature function
+auth_sig = build_signature(customer_id=os.environ['WORKSPACEID'],
+                shared_key=os.environ['LAWKEY'],
                 date=rfc1123_datetime, method= "POST", content_type="application/json",
                 resource="/api/logs",
                 json_payload=json_utf8
@@ -126,10 +135,11 @@ uri = f"https://{customerId}.ods.opinsights.azure.com{resource}?api-version=2016
 
 headers = {
         "Authorization" : auth_sig,
-        "Log-Type" : "CustomLogName",
+        "Log-Type" : "CustomLogNameV1",
         "x-ms-date" : rfc1123_datetime,
         "time-generated-field" : TimeStampField,
         "Content-Type" : contentType
     }
 response = requests.post(url=uri,data=json_data,headers=headers)
+print("break")
 print(response)
